@@ -3,7 +3,7 @@ import SocketServer
 import json
 from datetime import datetime
 
-loggedInUsers = {} # Hashmap with username as key and socket as value
+logged_in_users = {} # Hashmap with username as key and socket as value
 history = []
 
 class ClientHandler(SocketServer.BaseRequestHandler):
@@ -14,76 +14,83 @@ class ClientHandler(SocketServer.BaseRequestHandler):
     logic for the server, you must write it outside this class
     """
 
+    def send_message(self, socket, message):
+        try:
+            socket.send(message)
+        except:
+            self.connectionBroken = True
+
     def login(self, socket, username):
-        global loggedInUsers
+        global logged_in_users
         global history
 
         # Check that the user isn't logged in already with a different account
-        for cur_username, cur_socket in loggedInUsers.items():
-            if(socket == cur_socket):
-                # Inform user that he can only log in with one user
-                self.sendServerMessage(socket, 'error', 'You are already logged in as ' + username)
-                return
-        
-        #Check that the username isn't already in use
-        if(username not in loggedInUsers):
-            loggedInUsers[username] = socket
-            self.sendServerMessage(socket, 'info', 'Successfully logged in as ' + username)
-            for message in history:
-                socket.sendall(message)
-        else:
-            self.sendServerMessage(socket, 'error', 'User "' + username + '" already logged in')
-
-    def username_from_socket(self, socket):
-        global loggedInUsers
-        for username, socket in loggedInUsers.items():
-            if(socket == socket):
-                return username
-        else:
-            return False
-    def logout(self, socket):
-        global loggedInUsers
-        
-        # Look for user with same socket in usermapping
-        username = self.username_from_socket(socket)
-        if(username == False):
-            self.sendServerMessage(socket, 'info', 'Goodbye') # User wasn't logged in yet
+        if(self.username != None):
+            self.send_server_message(socket, 'error', 'You are already logged in')
             return
 
-        # Found user, remove from usermapping
-        del loggedInUsers[username]
-        self.sendServerMessage(socket, 'info', 'Goodbye ' + username)
+        # Check that the username isn't already in use
+        if(username not in logged_in_users):
+            logged_in_users[username] = socket
+            self.username = username
+            for message in history:
+                self.send_message(socket, message)
+
+            # Broadcast logged in message to all users
+            response = self.make_response('Server', 'info', (self.username + ' signed in'))
+            self.broadcast_message(response)
+            print('User \'' + self.username + '\' connected')
+        else:
+            self.send_server_message(socket, 'error', 'Username "' + username + '" already taken')
+
+    def logout(self, socket):
+        response = self.make_response('Server', 'info', (self.username + ' signed out'))
+        self.broadcast_message(response)
+        self.connectionBroken = True
 
     def help(self, socket):
-        help_message = "Welcome to group 8's chat server! Valid commands are: \n\
-        login <username> - Log onto the server with given username \n\
-        logout - Log out of the server\n\
-        msg <message> - Send a message to other logged in members\n\
-        names - List all logged in users\n\
-        help - View this text"
-        self.sendServerMessage(socket, 'info', help_message)
+        help_message = ('login <username> - Log onto the server with given username \n' +
+            'logout - Log out of the server\n' +
+            'msg <message> - Send a message to other logged in members\n' +
+            'names - List all logged in users\n' +
+            'help - View this text"')
+        self.send_server_message(socket, 'info', help_message)
 
     def msg(self, socket, message):
-        sender = self.username_from_socket(socket)
-        if(sender == False):
-            self.sendServerMessage(socket, 'error', 'You cannot send messages when not logged in')
+        if(self.username == None):
+            self.send_server_message(socket, 'error', 'You cannot send messages when not logged in')
             return
-        response = self.makeResponse(sender, 'message', message)
-        for username, socket in loggedInUsers.items():
-            socket.sendall(response)
+        response = self.make_response(self.username, 'message', message)
+        self.broadcast_message(response)
         # Append message to history log
-        history.append(self.makeResponse(sender, 'history', message))
+        history.append(self.make_response(self.username, 'history', message))
+        print('User \'' + self.username + '\' said: ' + message)
 
+    def names(self, socket):
+        global logged_in_users
 
+        if(self.username == None):
+            self.send_server_message(socket, 'error', 'You must be logged in to do this')
+            return
 
+        name_string  = ''
+        for user in logged_in_users:
+            name_string += user + ', '
+        if(len(logged_in_users) > 0):
+            name_string = name_string[:-2]
+        self.send_server_message(socket, 'info', name_string)
 
-    def sendServerMessage(self, socket, response_type,  message):
-        response = self.makeResponse('Server', response_type, message)
-        socket.sendall(response)
+    def broadcast_message(self, response):
+        for iter_username, iter_socket in logged_in_users.items():
+            self.send_message(iter_socket, response)
 
-    def makeResponse(self, sender,response_type, content, time=datetime.now()):
+    def send_server_message(self, socket, response_type,  message):
+        response = self.make_response('Server', response_type, message)
+        self.send_message(socket, response)
+
+    def make_response(self, sender, response_type, content):
         response = {
-            'timestamp': time.strftime('%d.%M.%Y %H:%M'), # Use DD.MM.YY HH:MM timestamp format
+            'timestamp': datetime.now().strftime('%d.%M.%Y %H:%M'), # Use DD.MM.YY HH:MM timestamp format
             'sender': sender,
             'response': response_type,
             'content': content }
@@ -93,26 +100,29 @@ class ClientHandler(SocketServer.BaseRequestHandler):
         """
         This method handles the connection between a client and the server.
         """
+        self.connectionBroken = False
+        self.username = None
         self.ip = self.client_address[0]
         self.port = self.client_address[1]
         self.connection = self.request
 
         # Loop that listens for messages from the client
-        while True:
-            received_string = self.connection.recv(4096).rstrip()
+        while not self.connectionBroken:
+            try:
+                received_string = self.connection.recv(4096).rstrip()
+            except:
+                pass
             # Deserialize recieved
             received_json = 0
             try:
-                print("'" + received_string + "'")
                 received_json = json.loads(received_string)
                 # Check that the sent request contains required fields
                 if(     'request' not in received_json or
                         'content' not in received_json):
                     raise ValueError
-            except Exception as e:
-                print(e)
+            except:
                 # Send error if malformed request sent
-                self.sendServerMessage(self.request, 'Error', 'Invalid request format')
+                self.send_server_message(self.request, 'Error', 'Invalid request format')
                 continue
 
             #Process request
@@ -126,11 +136,12 @@ class ClientHandler(SocketServer.BaseRequestHandler):
                 self.help(self.request)
             elif(request_type == 'msg'):
                 self.msg(self.request, received_json['content'])
-
-
-
-
-
+            elif(request_type == 'names'):
+                self.names(self.request)
+        # Connection terminated
+        if(self.username != None):
+            print('User \'' + self.username + '\' disconnected')
+            del logged_in_users[self.username]
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     """
