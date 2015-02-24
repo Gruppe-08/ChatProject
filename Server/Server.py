@@ -2,6 +2,7 @@
 import SocketServer
 import json
 import sys
+import re
 from datetime import datetime
 
 logged_in_users = {} # Hashmap with username as key and socket as value
@@ -12,6 +13,12 @@ class ClientHandler(SocketServer.BaseRequestHandler):
     #---CLIENT REQUEST METHODS---
     def login(self, socket, username):
         global history
+
+        # Check for illegal characters
+        alnum_check = re.compile('^[a-zA-Z0-9_]*$')
+        if not(alnum_check.match(username)):
+            self.send_server_message(socket, 'error', 'Invalid username')
+            return
 
         # Check that the user isn't logged in already with a different account
         if(self.username != None):
