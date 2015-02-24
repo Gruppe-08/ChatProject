@@ -120,7 +120,7 @@ class ClientHandler(SocketServer.BaseRequestHandler):
                     raise ValueError
             except:
                 # Send error if malformed request sent
-                self.send_server_message(self.request, 'Error', 'Invalid request format')
+                self.send_server_message(self.request, 'error', 'Invalid request format')
                 continue
 
             #Process request
