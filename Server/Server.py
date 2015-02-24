@@ -1,27 +1,16 @@
 # -*- coding: utf-8 -*-
 import SocketServer
 import json
+import sys
 from datetime import datetime
 
 logged_in_users = {} # Hashmap with username as key and socket as value
-history = []
+history = [] # Array containing all the history responses the server will send on login
 
 class ClientHandler(SocketServer.BaseRequestHandler):
-    """
-    This is the ClientHandler class. Everytime a new client connects to the
-    server, a new ClientHandler object will be created. This class represents
-    only connected clients, and not the server itself. If you want to write
-    logic for the server, you must write it outside this class
-    """
-
-    def send_message(self, socket, message):
-        try:
-            socket.send(message)
-        except:
-            self.connectionBroken = True
-
+    global logged_in_users
+    #---CLIENT REQUEST METHODS---
     def login(self, socket, username):
-        global logged_in_users
         global history
 
         # Check that the user isn't logged in already with a different account
@@ -44,8 +33,9 @@ class ClientHandler(SocketServer.BaseRequestHandler):
             self.send_server_message(socket, 'error', 'Username "' + username + '" already taken')
 
     def logout(self, socket):
-        response = self.make_response('Server', 'info', (self.username + ' signed out'))
-        self.broadcast_message(response)
+        if(self.username != None):
+            response = self.make_response('Server', 'info', (self.username + ' signed out'))
+            self.broadcast_message(response)
         self.connectionBroken = True
 
     def help(self, socket):
@@ -62,13 +52,12 @@ class ClientHandler(SocketServer.BaseRequestHandler):
             return
         response = self.make_response(self.username, 'message', message)
         self.broadcast_message(response)
+
         # Append message to history log
         history.append(self.make_response(self.username, 'history', message))
         print('User \'' + self.username + '\' said: ' + message)
 
     def names(self, socket):
-        global logged_in_users
-
         if(self.username == None):
             self.send_server_message(socket, 'error', 'You must be logged in to do this')
             return
@@ -78,8 +67,11 @@ class ClientHandler(SocketServer.BaseRequestHandler):
             name_string += user + ', '
         if(len(logged_in_users) > 0):
             name_string = name_string[:-2]
-        self.send_server_message(socket, 'info', name_string)
 
+        self.send_server_message(socket, 'info', name_string)
+    #---//CLIENT REQUEST METHODS//---
+
+    #---HELPER METHODS---
     def broadcast_message(self, response):
         for iter_username, iter_socket in logged_in_users.items():
             self.send_message(iter_socket, response)
@@ -94,12 +86,18 @@ class ClientHandler(SocketServer.BaseRequestHandler):
             'sender': sender,
             'response': response_type,
             'content': content }
+
         return json.dumps(response)
 
+    def send_message(self, socket, message):
+        try:
+            socket.send(message)
+        except:
+            # If send() throws an exception we assume the connecting was lost
+            self.connectionBroken = True
+    #---//HELPER METHODS//---
+
     def handle(self):
-        """
-        This method handles the connection between a client and the server.
-        """
         self.connectionBroken = False
         self.username = None
         self.ip = self.client_address[0]
@@ -131,37 +129,31 @@ class ClientHandler(SocketServer.BaseRequestHandler):
                 self.login(self.request, received_json['content'])
             elif(request_type == 'logout'):
                 self.logout(self.request)
-                break # Break loop and thus end connection
             elif(request_type == 'help'):
                 self.help(self.request)
             elif(request_type == 'msg'):
                 self.msg(self.request, received_json['content'])
             elif(request_type == 'names'):
                 self.names(self.request)
-        # Connection terminated
+
+        # Connection terminated, do cleanup
         if(self.username != None):
             print('User \'' + self.username + '\' disconnected')
             del logged_in_users[self.username]
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-    """
-    This class is present so that each client connected will be ran as a own
-    thread. In that way, all clients will be served by the server.
-
-    No alterations is necessary
-    """
     allow_reuse_address = True
 
 if __name__ == "__main__":
-    """
-    This is the main method and is executed when you type "python Server.py"
-    in your terminal.
-
-    No alterations is necessary
-    """
-    HOST, PORT = 'localhost', 9998
-    print 'Server running...'
+    # Take host and port from arguments if possible
+    host = 'localhost'
+    port = 9998
+    if(len(sys.argv) > 1):
+        host = sys.argv[1]
+        if(len(sys.argv) > 2):
+            port = int(sys.argv[2])
 
     # Set up and initiate the TCP server
-    server = ThreadedTCPServer((HOST, PORT), ClientHandler)
+    server = ThreadedTCPServer((host, port), ClientHandler)
+    print('Server running...')
     server.serve_forever()
