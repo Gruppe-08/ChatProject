@@ -16,10 +16,11 @@ class ClientHandler(SocketServer.BaseRequestHandler):
 
     def login(self, socket, username):
         global loggedInUsers
+        global history
 
         # Check that the user isn't logged in already with a different account
-        for username, socket in loggedInUsers.items():
-            if(socket == socket):
+        for cur_username, cur_socket in loggedInUsers.items():
+            if(socket == cur_socket):
                 # Inform user that he can only log in with one user
                 self.sendServerMessage(socket, 'error', 'You are already logged in as ' + username)
                 return
@@ -28,20 +29,52 @@ class ClientHandler(SocketServer.BaseRequestHandler):
         if(username not in loggedInUsers):
             loggedInUsers[username] = socket
             self.sendServerMessage(socket, 'info', 'Successfully logged in as ' + username)
+            for message in history:
+                socket.sendall(message)
         else:
             self.sendServerMessage(socket, 'error', 'User "' + username + '" already logged in')
 
+    def username_from_socket(self, socket):
+        global loggedInUsers
+        for username, socket in loggedInUsers.items():
+            if(socket == socket):
+                return username
+        else:
+            return False
     def logout(self, socket):
         global loggedInUsers
         
         # Look for user with same socket in usermapping
+        username = self.username_from_socket(socket)
+        if(username == False):
+            self.sendServerMessage(socket, 'info', 'Goodbye') # User wasn't logged in yet
+            return
+
+        # Found user, remove from usermapping
+        del loggedInUsers[username]
+        self.sendServerMessage(socket, 'info', 'Goodbye ' + username)
+
+    def help(self, socket):
+        help_message = "Welcome to group 8's chat server! Valid commands are: \n\
+        login <username> - Log onto the server with given username \n\
+        logout - Log out of the server\n\
+        msg <message> - Send a message to other logged in members\n\
+        names - List all logged in users\n\
+        help - View this text"
+        self.sendServerMessage(socket, 'info', help_message)
+
+    def msg(self, socket, message):
+        sender = self.username_from_socket(socket)
+        if(sender == False):
+            self.sendServerMessage(socket, 'error', 'You cannot send messages when not logged in')
+            return
+        response = self.makeResponse(sender, 'message', message)
         for username, socket in loggedInUsers.items():
-            if(socket == socket):
-                # Found user, remove from usermapping
-                del loggedInUsers[username]
-                self.sendServerMessage(socket, 'info', 'Goodbye ' + username)
-                return
-        self.sendServerMessage(socket, 'info', 'Goodbye') # User wasn't logged in yet
+            socket.sendall(response)
+        # Append message to history log
+        history.append(self.makeResponse(sender, 'history', message))
+
+
 
 
     def sendServerMessage(self, socket, response_type,  message):
@@ -66,18 +99,18 @@ class ClientHandler(SocketServer.BaseRequestHandler):
 
         # Loop that listens for messages from the client
         while True:
-            received_string = self.connection.recv(4096)
-            
+            received_string = self.connection.recv(4096).rstrip()
             # Deserialize recieved
             received_json = 0
             try:
+                print("'" + received_string + "'")
                 received_json = json.loads(received_string)
-
                 # Check that the sent request contains required fields
                 if(     'request' not in received_json or
                         'content' not in received_json):
                     raise ValueError
-            except:
+            except Exception as e:
+                print(e)
                 # Send error if malformed request sent
                 self.sendServerMessage(self.request, 'Error', 'Invalid request format')
                 continue
@@ -89,6 +122,10 @@ class ClientHandler(SocketServer.BaseRequestHandler):
             elif(request_type == 'logout'):
                 self.logout(self.request)
                 break # Break loop and thus end connection
+            elif(request_type == 'help'):
+                self.help(self.request)
+            elif(request_type == 'msg'):
+                self.msg(self.request, received_json['content'])
 
 
 

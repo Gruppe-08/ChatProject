@@ -1,0 +1,4 @@
+{"request": "login", "content": "testbruker"}
+{"request":"msg", "content":"Hei, jeg er en testbruker!"}
+{"request":"msg", "content":"HAHAHHAHAHAH"}
+{"request":"logout", "content":""}
