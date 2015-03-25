@@ -12,7 +12,6 @@ class Client:
         self.receiver = MessageReceiver(self, self.connection)
         self.host = host
         self.server_port = server_port
-        self.shouldDisconnect = False
 
         self.run()
 
@@ -27,13 +26,9 @@ class Client:
         print('Connected to ' + self.host + ':' + str(self.server_port))
 
         # Loop until user requests to disconnect
-        while not self.shouldDisconnect:
+        while True:
             command = raw_input()
             command = command.split(' ', 1)
-
-            # Check if the user requested to log out
-            if(command[0] == 'logout'):
-                self.shouldDisconnect = True
 
             response = {} # Empty json object
             response['request'] = command[0]
@@ -69,7 +64,7 @@ class Client:
 
 if __name__ == '__main__':
     # Take host and port from arguments if possible
-    host = 'localhost'
+    host = '192.168.1.13'
     port = 9998
     if(len(sys.argv) > 1):
         host = sys.argv[1]

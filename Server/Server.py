@@ -43,7 +43,9 @@ class ClientHandler(SocketServer.BaseRequestHandler):
         if(self.username != None):
             response = self.make_response('Server', 'info', (self.username + ' signed out'))
             self.broadcast_message(response)
-        self.connectionBroken = True
+            del logged_in_users[self.username]
+            self.username = None
+        
 
     def help(self, socket):
         help_message = ('login <username> - Log onto the server with given username \n' +
@@ -105,14 +107,13 @@ class ClientHandler(SocketServer.BaseRequestHandler):
     #---//HELPER METHODS//---
 
     def handle(self):
-        self.connectionBroken = False
         self.username = None
         self.ip = self.client_address[0]
         self.port = self.client_address[1]
         self.connection = self.request
 
         # Loop that listens for messages from the client
-        while not self.connectionBroken:
+        while True:
             try:
                 received_string = self.connection.recv(4096).rstrip()
             except:
@@ -126,6 +127,12 @@ class ClientHandler(SocketServer.BaseRequestHandler):
                         'content' not in received_json):
                     raise ValueError
             except:
+                if not received_json:
+                    if self.username is not None:
+                        del logged_in_users[self.username]
+                    break; # Shutdown thread if empty request recieved
+
+
                 # Send error if malformed request sent
                 self.send_server_message(self.request, 'error', 'Invalid request format')
                 continue
@@ -146,14 +153,13 @@ class ClientHandler(SocketServer.BaseRequestHandler):
         # Connection terminated, do cleanup
         if(self.username != None):
             print('User \'' + self.username + '\' disconnected')
-            del logged_in_users[self.username]
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
 
 if __name__ == "__main__":
     # Take host and port from arguments if possible
-    host = 'localhost'
+    host = '192.168.1.13'
     port = 9998
     if(len(sys.argv) > 1):
         host = sys.argv[1]

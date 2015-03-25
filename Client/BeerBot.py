@@ -83,7 +83,7 @@ class Client:
 
 if __name__ == '__main__':
     # Take host and port from arguments if possible
-    host = 'localhost'
+    host = '192.168.1.13'
     port = 9998
     if(len(sys.argv) > 1):
         host = sys.argv[1]
